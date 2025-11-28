@@ -28,7 +28,10 @@ function createTodo() {
     
   
 function deleteTodo(id: string) {
-    client.models.Todo.delete({ id })
+    client.models.Todo.delete({ id }).then(() => {
+    // Atualiza a lista de tarefas após a exclusão
+    listTodos();
+  });
 }
 
 // fetch todos when the component is mounted
