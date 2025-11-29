@@ -241,7 +241,7 @@ const developers = [
     name: 'Igor Cardoso', 
     role: 'Computação', 
     link: 'https://www.linkedin.com/in/igorxcardoso/', 
-    photo: '/Fotos/IgorCardoso.png' 
+    photo: 'https://www.auntyflo.com/sites/default/files/styles/real_image/public/dictionarys/spiritual-meanings/0000-angel-card-meaning.jpg' 
   },
   { 
     name: 'Participante 5', 
@@ -346,7 +346,7 @@ onMounted(() => loadData());
 
           <div class="new-act">
             <input type="date" v-model="newActivityDate" />
-            <input v-model="newActivityTitle" placeholder="Assuto" class="grow" />
+            <input v-model="newActivityTitle" placeholder="Assunto" class="grow" />
             <select v-model="selectedSubjectId">
               <option value="" disabled>Selecione a Matéria</option>
               <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
