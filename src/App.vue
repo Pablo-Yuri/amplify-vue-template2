@@ -209,7 +209,41 @@ async function updateAbsences(subject: any, change: number) {
     absences: newValue
   });
 }
-
+// --- LÓGICA DA CONTAGEM DE FALTAS ---------------------------------------
+// --- LÓGICA Participantes ---------------------------------------
+// --- DADOS DOS DESENVOLVEDORES (5 Participantes) ---
+const developers = [
+  { 
+    name: 'Pablo Yuri', 
+    role: 'Eng. Redes', 
+    link: 'https://github.com/Pablo-Yuri', 
+    photo: 'https://ui-avatars.com/api/?name=Pablo+Yuri&background=3498db&color=fff' 
+  },
+  { 
+    name: 'Participante 2', 
+    role: 'Frontend Dev', 
+    link: 'https://www.instagram.com/pbl_yuri/', 
+    photo: 'https://ui-avatars.com/api/?name=P+2&background=9b59b6&color=fff' 
+  },
+  { 
+    name: 'Participante 3', 
+    role: 'Backend Dev', 
+    link: '#', 
+    photo: 'https://ui-avatars.com/api/?name=P+3&background=2ecc71&color=fff' 
+  },
+  { 
+    name: 'Participante 4', 
+    role: 'Designer', 
+    link: '#', 
+    photo: 'https://ui-avatars.com/api/?name=P+4&background=e67e22&color=fff' 
+  },
+  { 
+    name: 'Participante 5', 
+    role: 'Documentação', 
+    link: '#', 
+    photo: 'https://ui-avatars.com/api/?name=P+5&background=e74c3c&color=fff' 
+  }
+];
 
 onMounted(() => loadData());
 </script>
@@ -374,6 +408,29 @@ onMounted(() => loadData());
               </button>
             </div>
           </div>
+
+        <footer class="credits-footer">
+            <p class="footer-title">Desenvolvido por:</p>
+            
+            <div class="devs-container">
+              <a 
+                v-for="(dev, index) in developers" 
+                :key="index" 
+                :href="dev.link" 
+                target="_blank" 
+                class="dev-card"
+              >
+                <img :src="dev.photo" :alt="dev.name" class="dev-avatar" />
+                <div class="dev-info">
+                  <span class="dev-name">{{ dev.name }}</span>
+                  <span class="dev-role">{{ dev.role }}</span>
+                </div>
+              </a>
+            </div>
+            
+            <p class="copyright">© 2025 Agenda Acadêmica - Vue.js & AWS Amplify</p>
+          </footer>
+
         </main>
       </div>
     </template>
@@ -585,5 +642,78 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   0% { opacity: 1; }
   50% { opacity: 0.6; }
   100% { opacity: 1; }
+}
+
+/* --- RODAPÉ --- */
+.credits-footer {
+  margin-top: 50px;
+  padding-top: 20px;
+  border-top: 1px solid #eee;
+  text-align: center;
+  color: #7f8c8d;
+  padding-bottom: 80px; /* Espaço extra para não ficar atrás do Pomodoro se ele for fixo */
+}
+
+.footer-title {
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 15px;
+}
+
+.devs-container {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.dev-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: white;
+  padding: 8px 15px;
+  border-radius: 50px;
+  text-decoration: none;
+  color: #333;
+  border: 1px solid #e0e0e0;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.dev-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+  border-color: #3498db;
+}
+
+.dev-avatar {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.dev-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.1;
+}
+
+.dev-name {
+  font-weight: bold;
+  font-size: 0.9em;
+}
+
+.dev-role {
+  font-size: 0.75em;
+  color: #999;
+}
+
+.copyright {
+  font-size: 0.75em;
+  opacity: 0.6;
 }
 </style>
