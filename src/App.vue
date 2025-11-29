@@ -265,25 +265,36 @@ const newSubjectWorkload = ref('60'); // Padrão 60h
 function getMaxAbsences(hours: number | null | undefined) {
   if (hours === 30) return 3;
   if (hours === 90) return 11;
-  return 7; // Padrão para 60h ou indefinido
+  return 7; // Padrã 
 }
-
-// Atualizar o createSubject para salvar a carga horária
-async function createSubject() {
-  if (!newSubjectName.value) return;
+  // const { data } = await client.models.Subject.create({
+  //   name: newSubjectName.value,
+  //   color: newSubjectColor.value,
+  //   workload: parseInt(newSubjectWorkload.value), // Salva 30, 60 ou 90
+  //   absences: 0 // Começa com zero
+  // });
   
+  // if (data) {
+  //   subjects.value.push(data);
+  //   newSubjectName.value = '';
+  // }
+  async function createSubject() {  // <--- VOCÊ ESQUECEU ESTA LINHA
+  if (!newSubjectName.value) return;
+
+  // Agora o await funciona porque está dentro de uma função async
   const { data } = await client.models.Subject.create({
     name: newSubjectName.value,
     color: newSubjectColor.value,
-    workload: parseInt(newSubjectWorkload.value), // Salva 30, 60 ou 90
-    absences: 0 // Começa com zero
+    workload: parseInt(newSubjectWorkload.value),
+    absences: 0
   });
-  
+
   if (data) {
     subjects.value.push(data);
     newSubjectName.value = '';
   }
 }
+
 
 // NOVA FUNÇÃO: Atualizar Faltas (+ ou -)
 async function updateAbsences(subject: any, change: number) {
@@ -333,7 +344,7 @@ const developers = [
     name: 'Igor Cardoso', 
     role: 'Computação', 
     link: 'https://www.linkedin.com/in/igorxcardoso/', 
-    photo: 'https://lh3.googleusercontent.com/pw/AP1GczPIWWvyh5IhLR6gi95Ha9PlAZ7DQaKEeBtKmiTuB4Sj1De-kIChX0ulsDaQEp1DgOoHbRi4xbZKfoupf2chRuozX70xch5vpgSeHNR9eq6qNJM5ljxTYwxQS9VjD2Noepw7mbDBmsdHiNJgzuKl3sjZtQ=w345-h607-s-no-gm?authuser=0' 
+    photo: 'https://lh3.googleusercontent.com/pw/AP1GczMrBPO-3VQYmByLXlx8xbDbNIN65bo96uZVitVEip1BV1oq2MH3tbu_ZhNT_ZJrnjp8E5cmq4nsrzk0knEloZe6epILL1T4wJw5zEE0twXeyfr-obz9T08vWKPZgCSlATxTldt-esiTFrzvZ2NkP_AtJQ=w514-h577-s-no-gm?authuser=0' 
   },
   { 
     name: 'Ana Carolina Dias', 
