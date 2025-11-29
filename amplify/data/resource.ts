@@ -34,19 +34,22 @@ const schema = a.schema({
   Subject: a.model({
     name: a.string().required(),
     color: a.string(),
-    activities: a.hasMany('Activity', 'subjectId'),
+    // NOVOS CAMPOS:
+    workload: a.integer(),           // Carga horária (30, 60 ou 90)
+    absences: a.integer().default(0),// Contador de faltas
+    
+    activities: a.hasMany('Activity', 'subjectId'), 
   })
   .authorization(allow => [allow.owner()]),
 
   Activity: a.model({
     title: a.string().required(),
     date: a.date().required(),
-    subjectId: a.id(),
+    subjectId: a.id(), 
     subject: a.belongsTo('Subject', 'subjectId'),
   })
   .authorization(allow => [allow.owner()]),
 
-  // A TABELA NOTE TEM QUE ESTAR AQUI
   Note: a.model({
     content: a.string(),
   })

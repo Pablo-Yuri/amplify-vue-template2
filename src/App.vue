@@ -8,7 +8,7 @@ import type { Schema } from '../amplify/data/resource';
 const client = generateClient<Schema>();
 
 // --- ESTADO ---
-const subjects = ref<Array<Schema['Subject']['type']>>([]);
+const subjects = ref<any[]>([]);
 const activities = ref<Array<Schema['Activity']['type']>>([]);
 const notes = ref<any[]>([]);
 
@@ -39,17 +39,17 @@ async function loadData() {
 // --- FUNÇÕES DE CRIAÇÃO ---
 
 // 1. Criar Matéria
-async function createSubject() {
-  if (!newSubjectName.value) return;
-  const { data } = await client.models.Subject.create({
-    name: newSubjectName.value,
-    color: newSubjectColor.value
-  });
-  if (data) {
-    subjects.value.push(data);
-    newSubjectName.value = '';
-  }
-}
+// async function createSubject() {
+//   if (!newSubjectName.value) return;
+//   const { data } = await client.models.Subject.create({
+//     name: newSubjectName.value,
+//     color: newSubjectColor.value
+//   });
+//   if (data) {
+//     subjects.value.push(data);
+//     newSubjectName.value = '';
+//   }
+// }
 
 // 2. Criar Atividade (Com vínculo)
 async function createActivity() {
@@ -113,6 +113,104 @@ const filteredActivities = computed(() => {
   return list.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 });
 
+// --- LÓGICA DO POMODORO ---------------------------------------
+const timerMinutes = ref(25);
+const timerSeconds = ref(0);
+const isTimerRunning = ref(false);
+const isBreakMode = ref(false); // false = Foco, true = Pausa
+const timerInterval = ref<any>(null); // Guarda o ID do intervalo
+
+// Formata o tempo para 00:00 (Computed)
+const formattedTime = computed(() => {
+  const m = String(timerMinutes.value).padStart(2, '0');
+  const s = String(timerSeconds.value).padStart(2, '0');
+  return `${m}:${s}`;
+});
+
+function toggleTimer() {
+  if (isTimerRunning.value) {
+    // Pausar
+    clearInterval(timerInterval.value);
+    isTimerRunning.value = false;
+  } else {
+    // Iniciar
+    isTimerRunning.value = true;
+    timerInterval.value = setInterval(() => {
+      if (timerSeconds.value > 0) {
+        timerSeconds.value--;
+      } else if (timerMinutes.value > 0) {
+        timerMinutes.value--;
+        timerSeconds.value = 59;
+      } else {
+        // Acabou o tempo!
+        clearInterval(timerInterval.value);
+        isTimerRunning.value = false;
+        alert(isBreakMode.value ? "Pausa acabou! Bora estudar?" : "Foco concluído! Descanse um pouco.");
+        // Opcional: Tocar um som aqui
+      }
+    }, 1000);
+  }
+}
+
+function resetTimer() {
+  clearInterval(timerInterval.value);
+  isTimerRunning.value = false;
+  timerSeconds.value = 0;
+  // Reseta para 25 ou 5 dependendo do modo
+  timerMinutes.value = isBreakMode.value ? 5 : 25;
+}
+
+function setMode(mode: 'focus' | 'break') {
+  isBreakMode.value = (mode === 'break');
+  resetTimer(); // Já reseta para o tempo certo
+}
+// --- LÓGICA DO POMODORO ---------------------------------------
+
+// --- LÓGICA DA CONTAGEM DE FALTAS ---------------------------------------
+const newSubjectWorkload = ref('60'); // Padrão 60h
+
+// Função auxiliar: Define o limite de faltas baseado nas horas
+function getMaxAbsences(hours: number | null | undefined) {
+  if (hours === 30) return 3;
+  if (hours === 90) return 11;
+  return 7; // Padrão para 60h ou indefinido
+}
+
+// Atualizar o createSubject para salvar a carga horária
+async function createSubject() {
+  if (!newSubjectName.value) return;
+  
+  const { data } = await client.models.Subject.create({
+    name: newSubjectName.value,
+    color: newSubjectColor.value,
+    workload: parseInt(newSubjectWorkload.value), // Salva 30, 60 ou 90
+    absences: 0 // Começa com zero
+  });
+  
+  if (data) {
+    subjects.value.push(data);
+    newSubjectName.value = '';
+  }
+}
+
+// NOVA FUNÇÃO: Atualizar Faltas (+ ou -)
+async function updateAbsences(subject: any, change: number) {
+  const current = subject.absences || 0;
+  const newValue = current + change;
+  
+  if (newValue < 0) return; // Não permite faltas negativas
+
+  // 1. Atualiza no Front (Visual imediato)
+  subject.absences = newValue;
+
+  // 2. Salva no Banco
+  await client.models.Subject.update({
+    id: subject.id,
+    absences: newValue
+  });
+}
+
+
 onMounted(() => loadData());
 </script>
 
@@ -138,13 +236,57 @@ onMounted(() => loadData());
             </ul>
           </div>
 
-          <div class="box">
+<div class="box">
             <h3>📚 Matérias</h3>
-            <input v-model="newSubjectName" placeholder="Nome da Matéria" />
-            <div class="color-row">
-              <input type="color" v-model="newSubjectColor" />
-              <button @click="createSubject">Add</button>
+            
+            <div class="subject-form">
+              <input v-model="newSubjectName" placeholder="Nome (ex: Cálculo)" />
+              
+              <div class="row-inputs">
+                <select v-model="newSubjectWorkload" title="Carga Horária">
+                  <option value="30">30h</option>
+                  <option value="60">60h</option>
+                  <option value="90">90h</option>
+                </select>
+                
+                <input type="color" v-model="newSubjectColor" title="Cor da Matéria" />
+                <button @click="createSubject">Add</button>
+              </div>
             </div>
+
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 15px 0;">
+
+            <div class="absences-list">
+              <h4 style="margin: 0 0 10px 0; font-size: 0.9em; color: #666;">⚠️ Controle de Faltas</h4>
+              
+              <div v-for="sub in subjects" :key="sub.id" class="absence-card">
+                <div class="sub-header">
+                  <span :style="{color: sub.color}">●</span> 
+                  <strong>{{ sub.name }}</strong>
+                </div>
+                
+                <div class="absence-controls">
+                  <button @click="updateAbsences(sub, -1)" class="btn-count">-</button>
+                  
+                  <span :class="{ 'danger-text': (sub.absences || 0) >= getMaxAbsences(sub.workload) }">
+                    {{ sub.absences || 0 }} / {{ getMaxAbsences(sub.workload) }} dias
+                  </span>
+                  
+                  <button @click="updateAbsences(sub, 1)" class="btn-count">+</button>
+                </div>
+
+                <div class="progress-bar-bg">
+                  <div 
+                    class="progress-bar-fill"
+                    :style="{ 
+                      width: Math.min(((sub.absences || 0) / getMaxAbsences(sub.workload)) * 100, 100) + '%',
+                      background: (sub.absences || 0) >= getMaxAbsences(sub.workload) ? '#e74c3c' : sub.color 
+                    }"
+                  ></div>
+                </div>
+              </div>
+            </div>
+
           </div>
         </aside>
 
@@ -201,6 +343,37 @@ onMounted(() => loadData());
               </div>
             </div>
           </div>
+          <div class="pomodoro-bar" :class="{ 'break-theme': isBreakMode }">
+            <div class="pomo-controls">
+              <button 
+                @click="setMode('focus')" 
+                :class="{ active: !isBreakMode }"
+                class="mode-btn"
+              >
+                🧠 Foco
+              </button>
+              <button 
+                @click="setMode('break')" 
+                :class="{ active: isBreakMode }"
+                class="mode-btn"
+              >
+                ☕ Pausa
+              </button>
+            </div>
+
+            <div class="timer-display">
+              {{ formattedTime }}
+            </div>
+
+            <div class="pomo-actions">
+              <button @click="toggleTimer" class="action-btn">
+                {{ isTimerRunning ? '⏸️ Pausar' : '▶️ Iniciar' }}
+              </button>
+              <button @click="resetTimer" class="reset-btn">
+                🔄
+              </button>
+            </div>
+          </div>
         </main>
       </div>
     </template>
@@ -241,4 +414,176 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 .date-box { display: flex; flex-direction: column; align-items: center; font-weight: bold; color: #555; min-width: 50px; }
 .sub-name { font-size: 0.8em; color: #777; }
 .empty { text-align: center; color: #999; margin-top: 20px; }
+
+/* --- POMODORO STYLES --- */
+.pomodoro-bar {
+  position: sticky; /* Gruda no fundo */
+  bottom: 0;
+  left: 0;
+  right: 0;
+  
+  background: #2c3e50; /* Cor escura para destaque */
+  color: white;
+  
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  
+  padding: 10px 20px;
+  margin-top: 20px;
+  border-radius: 50px; /* Borda bem redonda */
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  z-index: 100;
+  width: 90%;
+  margin-left: auto;
+  margin-right: auto;
+  transition: background 0.3s;
+}
+
+/* Tema quando estiver em pausa (Verde) */
+.pomodoro-bar.break-theme {
+  background: #27ae60;
+}
+
+.timer-display {
+  font-size: 2em;
+  font-weight: bold;
+  font-family: monospace; /* Fonte estilo relógio */
+  letter-spacing: 2px;
+}
+
+/* Botões de Modo (Foco/Pausa) */
+.pomo-controls {
+  display: flex;
+  gap: 5px;
+}
+.mode-btn {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.7);
+  border-radius: 20px;
+  padding: 5px 10px;
+  font-size: 0.8em;
+}
+.mode-btn.active {
+  background: white;
+  color: #2c3e50; /* Texto escuro */
+  font-weight: bold;
+  border-color: white;
+}
+
+/* Botões de Ação (Play/Reset) */
+.pomo-actions {
+  display: flex;
+  gap: 10px;
+}
+.action-btn {
+  background: white;
+  color: #2c3e50;
+  font-weight: bold;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 20px;
+}
+.action-btn:hover {
+  background: #ecf0f1;
+}
+.reset-btn {
+  background: rgba(255,255,255,0.2);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 35px;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.reset-btn:hover {
+  background: rgba(255,255,255,0.4);
+}
+
+/* --- ESTILOS DO CONTROLE DE FALTAS --- */
+.subject-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.row-inputs {
+  display: flex;
+  gap: 5px;
+}
+.row-inputs select {
+  width: 70px; /* Largura fixa para o seletor */
+}
+.row-inputs button {
+  flex-grow: 1;
+}
+
+/* Lista de Faltas */
+.absences-list {
+  max-height: 250px;
+  overflow-y: auto;
+}
+.absence-card {
+  background: #f8f9fa;
+  border: 1px solid #eee;
+  padding: 8px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.sub-header {
+  font-size: 0.9em;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.absence-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85em;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+.btn-count {
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e0e0e0;
+  color: #333;
+  border-radius: 4px;
+}
+.btn-count:hover {
+  background: #d6d6d6;
+}
+
+/* Texto de perigo quando estoura o limite */
+.danger-text {
+  color: #e74c3c;
+  animation: pulse 1s infinite;
+}
+
+/* Barra de progresso */
+.progress-bar-bg {
+  width: 100%;
+  height: 4px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  transition: width 0.3s ease, background 0.3s;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
 </style>
