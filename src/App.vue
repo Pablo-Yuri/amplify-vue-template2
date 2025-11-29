@@ -104,7 +104,7 @@ const filteredActivities = computed(() => {
     list = list.filter(a => {
       const d = new Date(a.date);
       // Ajuste básico de timezone (adicionando 3h para compensar UTC se necessário)
-      d.setHours(d.getHours() + 3); 
+      d.setHours(d.getHours() + 3);
       return d >= inicio && d <= fim;
     });
   }
@@ -139,15 +139,44 @@ function saveGoal() {
 
 // --- 3. BANCO DE DADOS (Carregar) ---
 async function loadPomodoros() {
+  // 1. Primeiro carrega do localStorage (dados locais)
+  loadPomodorFromLocalStorage();
+
   try {
+    // 2. Tenta carregar do banco (quando estiver disponível)
     const { data } = await client.models.Pomodoro.list();
-    // Ordena: Mais recentes primeiro
-    pomodoroHistory.value = data.sort((a, b) => 
-      new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
-    );
+    if (data && data.length > 0) {
+      // Se conseguir do banco, mescla com localStorage (banco tem prioridade)
+      const bankData = data.sort((a, b) =>
+        new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+      );
+      pomodoroHistory.value = bankData;
+    }
   } catch (e) {
-    console.error("Erro ao carregar pomodoros:", e);
+    console.error("Erro ao carregar pomodoros do banco:", e);
+    // Continua com dados do localStorage se falhar
   }
+}
+
+// --- POMODORO LOCALSTORAGE ---
+function loadPomodorFromLocalStorage() {
+  const saved = localStorage.getItem('pomodoroHistory');
+  if (saved) {
+    try {
+      const history = JSON.parse(saved);
+      pomodoroHistory.value = history.sort((a: any, b: any) =>
+        new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+      );
+    } catch (e) {
+      console.error("Erro ao carregar pomodoros do localStorage:", e);
+    }
+  }
+}
+
+function savePomodoroToLocalStorage(pomodoroData: any) {
+  const current = pomodoroHistory.value || [];
+  const updated = [pomodoroData, ...current];
+  localStorage.setItem('pomodoroHistory', JSON.stringify(updated));
 }
 
 // --- 4. LÓGICA DO RELÓGIO (Start/Stop) ---
@@ -182,24 +211,36 @@ function toggleTimer() {
 async function finishPomodoro() {
   clearInterval(timerInterval.value);
   isTimerRunning.value = false;
-  
+
   // Tocar som (opcional) ou alerta
   alert("🎉 Foco concluído! Salvando progresso...");
 
+  // Dados do pomodoro
+  const pomodoroData = {
+    id: `pomo-${Date.now()}`, // Gerar ID local
+    minutes: customMinutes.value,
+    completedAt: new Date().toISOString()
+  };
+
+  // 1. Salva no localStorage (sempre funciona)
+  savePomodoroToLocalStorage(pomodoroData);
+
   try {
-    // Salva no DynamoDB
+    // 2. Tenta salvar no DynamoDB (quando banco estiver disponível)
     const { data } = await client.models.Pomodoro.create({
       minutes: customMinutes.value, // Salva o tempo total que foi configurado
       completedAt: new Date().toISOString()
     });
 
     if (data) {
-      pomodoroHistory.value.unshift(data); // Adiciona no topo da lista visual
+      // Atualiza o histórico se conseguir salvar no banco
+      pomodoroHistory.value.unshift(data);
     }
   } catch (e) {
-    console.error("Erro ao salvar pomodoro:", e);
+    console.error("Erro ao salvar pomodoro no banco:", e);
+    // Mesmo com erro no banco, continua funcionando com localStorage
   }
-  
+
   resetTimer();
 }
 
@@ -214,14 +255,14 @@ function resetTimer() {
 // --- 6. ESTATÍSTICAS (Computed) ---
 const dailyProgress = computed(() => {
   const hoje = new Date().toDateString();
-  
+
   // 1. Filtra histórico apenas de HOJE e soma os minutos
   const minutosHoje = pomodoroHistory.value
     .filter(p => new Date(p.completedAt).toDateString() === hoje)
     .reduce((total, p) => total + p.minutes, 0);
 
   // 2. Pega o valor total da meta (usando .value pois é computed)
-  const metaTotal = dailyGoalMinutes.value; 
+  const metaTotal = dailyGoalMinutes.value;
 
   // Evita divisão por zero
   if (metaTotal <= 0) return 0;
@@ -238,11 +279,14 @@ const formattedTime = computed(() => {
 // --- 7. CICLO DE VIDA (OnMounted) ---
 onMounted(() => {
   // Carrega dados gerais
-  loadData(); 
-  
+  loadData();
+
   // Carrega histórico do Pomodoro
-  loadPomodoros(); 
-  
+  loadPomodoros();
+
+  // Carrega atividades concluídas
+  loadCompletedActivities();
+
   // Recupera a meta salva no navegador (LocalStorage)
   const savedGoal = localStorage.getItem('userStudyGoal');
   if (savedGoal) {
@@ -265,14 +309,14 @@ function getMaxAbsences(hours: number | null | undefined) {
 // Atualizar o createSubject para salvar a carga horária
 async function createSubject() {
   if (!newSubjectName.value) return;
-  
+
   const { data } = await client.models.Subject.create({
     name: newSubjectName.value,
     color: newSubjectColor.value,
     workload: parseInt(newSubjectWorkload.value), // Salva 30, 60 ou 90
     absences: 0 // Começa com zero
   });
-  
+
   if (data) {
     subjects.value.push(data);
     newSubjectName.value = '';
@@ -283,7 +327,7 @@ async function createSubject() {
 async function updateAbsences(subject: any, change: number) {
   const current = subject.absences || 0;
   const newValue = current + change;
-  
+
   if (newValue < 0) return; // Não permite faltas negativas
 
   // 1. Atualiza no Front (Visual imediato)
@@ -296,44 +340,145 @@ async function updateAbsences(subject: any, change: number) {
   });
 }
 // --- LÓGICA DA CONTAGEM DE FALTAS ---------------------------------------
+
+// --- LÓGICA DE ABAS E ESTATÍSTICAS ---
+const activeTab = ref('agenda'); // 'agenda', 'stats' ou 'activities'
+
+// Rastrear atividades concluídas localmente
+const completedActivities = ref<Set<string>>(new Set());
+
+// Carregar atividades concluídas do localStorage
+function loadCompletedActivities() {
+  const saved = localStorage.getItem('completedActivities');
+  if (saved) {
+    completedActivities.value = new Set(JSON.parse(saved));
+  }
+}
+
+// Salvar atividades concluídas no localStorage
+function saveCompletedActivities() {
+  localStorage.setItem('completedActivities', JSON.stringify(Array.from(completedActivities.value)));
+}
+
+// Computada para obter atividades agrupadas por matéria
+const activitiesBySubject = computed(() => {
+  const grouped: { [key: string]: { subject: any; activities: any[] } } = {};
+
+  subjects.value.forEach(subject => {
+    const subActivities = activities.value.filter(a => a.subjectId === subject.id);
+    grouped[subject.id] = {
+      subject,
+      activities: subActivities.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    };
+  });
+
+  return grouped;
+});
+
+// Função para marcar atividade como completa
+function toggleActivityComplete(activityId: string) {
+  if (completedActivities.value.has(activityId)) {
+    completedActivities.value.delete(activityId);
+  } else {
+    completedActivities.value.add(activityId);
+  }
+  saveCompletedActivities();
+}
+
+// Função para verificar se uma atividade está completa
+function isActivityCompleted(activityId: string): boolean {
+  return completedActivities.value.has(activityId);
+}
+
+// Computada para contar atividades pendentes por matéria
+function getActivityStats(subjectId: string) {
+  const subActivities = activities.value.filter(a => a.subjectId === subjectId);
+  const completed = subActivities.filter(a => completedActivities.value.has(a.id)).length;
+  const pending = subActivities.length - completed;
+
+  return { completed, pending, total: subActivities.length };
+}
+const pomodoroByDay = computed(() => {
+  const days: { [key: string]: number } = {};
+
+  pomodoroHistory.value.forEach(p => {
+    const date = new Date(p.completedAt).toLocaleDateString('pt-BR');
+    days[date] = (days[date] || 0) + p.minutes;
+  });
+
+  return Object.entries(days)
+    .map(([date, minutes]) => ({ date, minutes }))
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+});
+
+// Computada para obter estatísticas por semana
+const pomodoroByWeek = computed(() => {
+  const weeks: { [key: string]: number } = {};
+
+  pomodoroHistory.value.forEach(p => {
+    const date = new Date(p.completedAt);
+    const startOfWeek = new Date(date);
+    startOfWeek.setDate(date.getDate() - date.getDay());
+
+    const weekKey = `${startOfWeek.toLocaleDateString('pt-BR')} - ${new Date(startOfWeek.getTime() + 6 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR')}`;
+    weeks[weekKey] = (weeks[weekKey] || 0) + p.minutes;
+  });
+
+  return Object.entries(weeks)
+    .map(([week, minutes]) => ({ week, minutes }))
+    .sort((a, b) => new Date(a.week).getTime() - new Date(b.week).getTime());
+});
+
+// Computada para obter total de minutos estudados
+const totalMinutesStudied = computed(() => {
+  return pomodoroHistory.value.reduce((total, p) => total + p.minutes, 0);
+});
+
+// Computada para obter média de minutos por sessão
+const averageSessionMinutes = computed(() => {
+  if (pomodoroHistory.value.length === 0) return 0;
+  return Math.round(totalMinutesStudied.value / pomodoroHistory.value.length);
+});
+
+// --- LÓGICA DE ABAS E ESTATÍSTICAS ---
 // --- LÓGICA Participantes ---------------------------------------
 // --- DADOS DOS DESENVOLVEDORES  ---
 const developers = [
-  { 
-    name: 'Hack the Cloud', 
-    role: 'Mestres', 
-    link: 'https://www.instagram.com/hackthecloud.unb', 
-    photo: 's3://foto11/hack.PNG' 
+  {
+    name: 'Hack the Cloud',
+    role: 'Mestres',
+    link: 'https://www.instagram.com/hackthecloud.unb',
+    photo: 's3://foto11/hack.PNG'
   },
-  { 
-    name: 'Pablo Yuri', 
-    role: 'Eng. Redes', 
-    link: 'https://github.com/Pablo-Yuri', 
-    photo: '/Fotos/PabloYuri.png' 
+  {
+    name: 'Pablo Yuri',
+    role: 'Eng. Redes',
+    link: 'https://github.com/Pablo-Yuri',
+    photo: '/Fotos/PabloYuri.png'
   },
-  { 
-    name: 'Victor Girão', 
-    role: 'Eng. Computação', 
-    link: 'https://www.linkedin.com/in/victor-gir%C3%A3o-costa-122a9b226/', 
-    photo: 'https://photos.app.goo.gl/8YiabLFMdanZiuRa7' 
+  {
+    name: 'Victor Girão',
+    role: 'Eng. Computação',
+    link: 'https://www.linkedin.com/in/victor-gir%C3%A3o-costa-122a9b226/',
+    photo: 'https://photos.app.goo.gl/8YiabLFMdanZiuRa7'
   },
-  { 
-    name: 'Thayná Gonçalves', 
-    role: 'Fisioterapia', 
-    link: 'https://www.linkedin.com/in/thaynagoncalvesdutra', 
-    photo: 'https://photos.app.goo.gl/44NVufQcm7cFMcWJA' 
+  {
+    name: 'Thayná Gonçalves',
+    role: 'Fisioterapia',
+    link: 'https://www.linkedin.com/in/thaynagoncalvesdutra',
+    photo: 'https://photos.app.goo.gl/44NVufQcm7cFMcWJA'
   },
-  { 
-    name: 'Igor Cardoso', 
-    role: 'Computação', 
-    link: 'https://www.linkedin.com/in/igorxcardoso/', 
-    photo: 'https://photos.app.goo.gl/ckNSCzeBndfoh2Ra7' 
+  {
+    name: 'Igor Cardoso',
+    role: 'Computação',
+    link: 'https://www.linkedin.com/in/igorxcardoso/',
+    photo: 'https://photos.app.goo.gl/ckNSCzeBndfoh2Ra7'
   },
-  { 
-    name: 'Participante 5', 
-    role: 'Documentação', 
-    link: '#', 
-    photo: 'https://ui-avatars.com/api/?name=P+5&background=e74c3c&color=fff' 
+  {
+    name: 'Participante 5',
+    role: 'Documentação',
+    link: '#',
+    photo: 'https://ui-avatars.com/api/?name=P+5&background=e74c3c&color=fff'
   }
 ];
 
@@ -344,7 +489,7 @@ onMounted(() => loadData());
   <authenticator>
     <template v-slot="{ signOut, user }">
       <div class="layout">
-        
+
         <aside class="sidebar">
           <div class="user-box">
             Olá, {{ user?.signInDetails?.loginId?.split('@')[0] }}
@@ -364,17 +509,17 @@ onMounted(() => loadData());
 
 <div class="box">
             <h3>📚 Matérias</h3>
-            
+
             <div class="subject-form">
               <input v-model="newSubjectName" placeholder="Nome (ex: Cálculo)" />
-              
+
               <div class="row-inputs">
                 <select v-model="newSubjectWorkload" title="Carga Horária">
                   <option value="30">30h</option>
                   <option value="60">60h</option>
                   <option value="90">90h</option>
                 </select>
-                
+
                 <input type="color" v-model="newSubjectColor" title="Cor da Matéria" />
                 <button @click="createSubject">Add</button>
               </div>
@@ -384,39 +529,42 @@ onMounted(() => loadData());
 
             <div class="absences-list">
               <h4 style="margin: 0 0 10px 0; font-size: 0.9em; color: #666;">⚠️ Controle de Faltas</h4>
-              
+
               <div v-for="sub in subjects" :key="sub.id" class="absence-card">
                 <div class="sub-header">
-                  <span :style="{color: sub.color}">●</span> 
+                  <span :style="{color: sub.color}">●</span>
                   <strong>{{ sub.name }}</strong>
                 </div>
-                
+
                 <div class="absence-controls">
                   <button @click="updateAbsences(sub, -1)" class="btn-count">-</button>
-                  
+
                   <span :class="{ 'danger-text': (sub.absences || 0) >= getMaxAbsences(sub.workload) }">
                     {{ sub.absences || 0 }} / {{ getMaxAbsences(sub.workload) }} dias
                   </span>
-                  
+
                   <button @click="updateAbsences(sub, 1)" class="btn-count">+</button>
                 </div>
 
                 <div class="progress-bar-bg">
-                  <div 
+                  <div
                     class="progress-bar-fill"
-                    :style="{ 
+                    :style="{
                       width: Math.min(((sub.absences || 0) / getMaxAbsences(sub.workload)) * 100, 100) + '%',
-                      background: (sub.absences || 0) >= getMaxAbsences(sub.workload) ? '#e74c3c' : sub.color 
+                      background: (sub.absences || 0) >= getMaxAbsences(sub.workload) ? '#e74c3c' : sub.color
                     }"
                   ></div>
                 </div>
               </div>
             </div>
 
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 15px 0;">
+            <button @click="activeTab = 'stats'" class="btn-stats-link">📊 Estatísticas</button>
+
           </div>
         <!-- <div class="box">
             <h3>Calendário Acadêmico 2025.2</h3>
-            
+
             <div class="subject-form">
               {
                 "initialData": "05/01/2026",
@@ -444,66 +592,266 @@ onMounted(() => loadData());
             <hr style="border: 0; border-top: 1px solid #eee; margin: 15px 0;">
         </aside>
         <main class="content">
-          <header>
-            <h2>Agenda de Estudos</h2>
-            <button @click="showPomoModal = true" class="btn-pomo-trigger">
-              ⏱️ Modo Foco
+          <!-- Abas de Navegação -->
+          <div class="tabs-container">
+            <button
+              @click="activeTab = 'agenda'"
+              :class="{ 'tab-active': activeTab === 'agenda' }"
+              class="tab-btn"
+            >
+              📋 Agenda
             </button>
-            <div class="filters">
-              <label>
-                <input type="checkbox" v-model="showOnlyCurrentWeek"> Esta Semana
-              </label>
-              <select v-model="filterSubjectId">
-                <option value="all">Todas</option>
-                <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
-              </select>
-            </div>
-          </header>
-
-          <div class="new-act">
-            <input type="date" v-model="newActivityDate" />
-            <input v-model="newActivityTitle" placeholder="Assunto" class="grow" />
-            <select v-model="selectedSubjectId">
-              <option value="" disabled>Selecione a Matéria</option>
-              <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </select>
-            <button @click="createActivity">Agendar</button>
+            <button
+              @click="activeTab = 'stats'"
+              :class="{ 'tab-active': activeTab === 'stats' }"
+              class="tab-btn"
+            >
+              📊 Estatísticas
+            </button>
+            <button
+              @click="activeTab = 'activities'"
+              :class="{ 'tab-active': activeTab === 'activities' }"
+              class="tab-btn"
+            >
+              ✅ Atividades por Matéria
+            </button>
           </div>
 
-          <div class="list">
-            <div v-if="filteredActivities.length === 0" class="empty">Nada encontrado.</div>
-            
-            <div 
-              v-for="act in filteredActivities" 
-              :key="act.id" 
-              class="card"
-              :style="{ borderLeft: `5px solid ${subjects.find(s => s.id === act.subjectId)?.color || '#ccc'}` }"
-            >
-              <div class="date-box">
-                {{ new Date(act.date).toLocaleDateString('pt-BR', { 
-                    month: '2-digit',
-                    day: '2-digit',  
-                    timeZone: 'UTC' 
-                }) }}
-                  
-                  <small>
-                    {{ new Date(act.date).toLocaleDateString('pt-BR', { 
-                        weekday: 'short', 
-                        timeZone: 'UTC' 
-                    }) }}
-                  </small>
+          <!-- ABA AGENDA -->
+          <div v-show="activeTab === 'agenda'" class="tab-content">
+            <header>
+              <h2>Agenda de Estudos</h2>
+              <button @click="showPomoModal = true" class="btn-pomo-trigger">
+                ⏱️ Modo Foco
+              </button>
+              <div class="filters">
+                <label>
+                  <input type="checkbox" v-model="showOnlyCurrentWeek"> Esta Semana
+                </label>
+                <select v-model="filterSubjectId">
+                  <option value="all">Todas</option>
+                  <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
+                </select>
+              </div>
+            </header>
+
+            <div class="new-act">
+              <input type="date" v-model="newActivityDate" />
+              <input v-model="newActivityTitle" placeholder="Assunto" class="grow" />
+              <select v-model="selectedSubjectId">
+                <option value="" disabled>Selecione a Matéria</option>
+                <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
+              <button @click="createActivity">Agendar</button>
+            </div>
+
+            <div class="list">
+              <div v-if="filteredActivities.length === 0" class="empty">Nada encontrado.</div>
+
+              <div
+                v-for="act in filteredActivities"
+                :key="act.id"
+                class="card"
+                :style="{ borderLeft: `5px solid ${subjects.find(s => s.id === act.subjectId)?.color || '#ccc'}` }"
+              >
+                <div class="date-box">
+                  {{ new Date(act.date).toLocaleDateString('pt-BR', {
+                      month: '2-digit',
+                      day: '2-digit',
+                      timeZone: 'UTC'
+                  }) }}
+
+                    <small>
+                      {{ new Date(act.date).toLocaleDateString('pt-BR', {
+                          weekday: 'short',
+                          timeZone: 'UTC'
+                      }) }}
+                    </small>
+                  </div>
+                <div>
+                  <strong>{{ act.title }}</strong>
+                  <div class="sub-name">{{ subjects.find(s => s.id === act.subjectId)?.name || '...' }}</div>
                 </div>
-              <div>
-                <strong>{{ act.title }}</strong>
-                <div class="sub-name">{{ subjects.find(s => s.id === act.subjectId)?.name || '...' }}</div>
               </div>
             </div>
           </div>
 
+          <!-- ABA ESTATÍSTICAS -->
+          <div v-show="activeTab === 'stats'" class="tab-content">
+            <header>
+              <h2>📊 Estatísticas de Estudo</h2>
+            </header>
+
+            <!-- Cards de Resumo -->
+            <div class="stats-summary">
+              <div class="stat-card">
+                <div class="stat-label">Total Estudado</div>
+                <div class="stat-value">{{ Math.floor(totalMinutesStudied / 60) }}h {{ totalMinutesStudied % 60 }}m</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Sessões Completas</div>
+                <div class="stat-value">{{ pomodoroHistory.length }}</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Média por Sessão</div>
+                <div class="stat-value">{{ averageSessionMinutes }}m</div>
+              </div>
+            </div>
+
+            <!-- Estatísticas por Dia -->
+            <div class="stats-section">
+              <h3>📅 Estatísticas por Dia</h3>
+              <div v-if="pomodoroByDay.length === 0" class="empty-stats">
+                Nenhuma sessão registrada ainda.
+              </div>
+              <div v-else class="stats-list">
+                <div v-for="(day, index) in pomodoroByDay" :key="index" class="stat-item">
+                  <div class="stat-date">{{ day.date }}</div>
+                  <div class="stat-bar-container">
+                    <div class="stat-bar" :style="{ width: Math.min((day.minutes / 120) * 100, 100) + '%' }"></div>
+                  </div>
+                  <div class="stat-time">{{ Math.floor(day.minutes / 60) }}h {{ day.minutes % 60 }}m</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Estatísticas por Semana -->
+            <div class="stats-section">
+              <h3>📆 Estatísticas por Semana</h3>
+              <div v-if="pomodoroByWeek.length === 0" class="empty-stats">
+                Nenhuma sessão registrada ainda.
+              </div>
+              <div v-else class="stats-list">
+                <div v-for="(week, index) in pomodoroByWeek" :key="index" class="stat-item">
+                  <div class="stat-date">{{ week.week }}</div>
+                  <div class="stat-bar-container">
+                    <div class="stat-bar" :style="{ width: Math.min((week.minutes / 500) * 100, 100) + '%' }"></div>
+                  </div>
+                  <div class="stat-time">{{ Math.floor(week.minutes / 60) }}h {{ week.minutes % 60 }}m</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ABA ATIVIDADES POR MATÉRIA -->
+          <div v-show="activeTab === 'activities'" class="tab-content">
+            <header>
+              <h2>✅ Atividades por Matéria</h2>
+            </header>
+
+            <div v-if="subjects.length === 0" class="empty-stats">
+              Nenhuma matéria cadastrada. Crie uma matéria para começar!
+            </div>
+
+            <div v-else class="subjects-activities-list">
+              <div
+                v-for="(subjectData, subjectId) in activitiesBySubject"
+                :key="subjectId"
+                class="subject-section"
+              >
+                <!-- Cabeçalho da Matéria -->
+                <div class="subject-header">
+                  <div class="subject-title">
+                    <span class="subject-dot" :style="{ background: subjectData.subject.color }"></span>
+                    <h3>{{ subjectData.subject.name }}</h3>
+                  </div>
+                  <div class="subject-stats">
+                    <span class="stat-badge completed">✅ {{ getActivityStats(subjectId).completed }}</span>
+                    <span class="stat-badge pending">⏳ {{ getActivityStats(subjectId).pending }}</span>
+                  </div>
+                </div>
+
+                <!-- Barra de Progresso -->
+                <div class="progress-bar-container">
+                  <div
+                    class="progress-bar-fill"
+                    :style="{
+                      width: getActivityStats(subjectId).total === 0
+                        ? '0%'
+                        : ((getActivityStats(subjectId).completed / getActivityStats(subjectId).total) * 100) + '%',
+                      background: subjectData.subject.color
+                    }"
+                  ></div>
+                </div>
+
+                <!-- Lista de Atividades -->
+                <div class="activities-list">
+                  <div v-if="subjectData.activities.length === 0" class="no-activities">
+                    Nenhuma atividade cadastrada para esta matéria.
+                  </div>
+
+                  <!-- Atividades Pendentes -->
+                  <div v-if="subjectData.activities.filter(a => !isActivityCompleted(a.id)).length > 0" class="activities-group">
+                    <h4 class="activities-group-title">Pendentes</h4>
+                    <div
+                      v-for="activity in subjectData.activities.filter(a => !isActivityCompleted(a.id))"
+                      :key="activity.id"
+                      class="activity-item"
+                    >
+                      <div class="activity-checkbox">
+                        <input
+                          type="checkbox"
+                          @change="toggleActivityComplete(activity.id)"
+                          :id="`activity-${activity.id}`"
+                        >
+                      </div>
+                      <div class="activity-details">
+                        <label :for="`activity-${activity.id}`" class="activity-title">
+                          {{ activity.title }}
+                        </label>
+                        <div class="activity-date">
+                          {{ new Date(activity.date).toLocaleDateString('pt-BR', {
+                            weekday: 'short',
+                            day: '2-digit',
+                            month: '2-digit',
+                            timeZone: 'UTC'
+                          }) }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Atividades Concluídas -->
+                  <div v-if="subjectData.activities.filter(a => isActivityCompleted(a.id)).length > 0" class="activities-group">
+                    <h4 class="activities-group-title completed-group">Concluídas</h4>
+                    <div
+                      v-for="activity in subjectData.activities.filter(a => isActivityCompleted(a.id))"
+                      :key="activity.id"
+                      class="activity-item completed"
+                    >
+                      <div class="activity-checkbox">
+                        <input
+                          type="checkbox"
+                          checked
+                          @change="toggleActivityComplete(activity.id)"
+                          :id="`activity-${activity.id}`"
+                        >
+                      </div>
+                      <div class="activity-details">
+                        <label :for="`activity-${activity.id}`" class="activity-title">
+                          {{ activity.title }}
+                        </label>
+                        <div class="activity-date">
+                          {{ new Date(activity.date).toLocaleDateString('pt-BR', {
+                            weekday: 'short',
+                            day: '2-digit',
+                            month: '2-digit',
+                            timeZone: 'UTC'
+                          }) }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Modal do Pomodoro -->
           <div v-if="showPomoModal" class="modal-overlay">
           <div class="modal-box">
             <button class="close-btn" @click="showPomoModal = false">×</button>
-            
+
             <h2>🧠 Sala de Foco</h2>
 
             <div class="timer-config" v-if="!isTimerRunning">
@@ -525,7 +873,7 @@ onMounted(() => loadData());
             <hr class="divider">
 
             <div class="stats-area">
-      
+
               <div class="progress-header">
                 <span v-if="!isEditingGoal">
                   Meta: <strong>{{ dailyGoalHours }}h</strong>
@@ -533,11 +881,11 @@ onMounted(() => loadData());
                 </span>
 
                 <div v-else class="goal-editor">
-                  <input 
-                    type="number" 
-                    v-model="dailyGoalHours" 
-                    min="1" 
-                    max="12" 
+                  <input
+                    type="number"
+                    v-model="dailyGoalHours"
+                    min="1"
+                    max="12"
                     step="0.5"
                   > h
                   <button @click="saveGoal" class="btn-save-mini">OK</button>
@@ -547,15 +895,15 @@ onMounted(() => loadData());
               </div>
 
               <div class="progress-bg">
-                <div 
-                  class="progress-fill" 
-                  :style="{ 
+                <div
+                  class="progress-fill"
+                  :style="{
                     width: dailyProgress + '%',
-                    background: dailyProgress >= 100 ? '#f1c40f' : '#2ecc71' 
+                    background: dailyProgress >= 100 ? '#f1c40f' : '#2ecc71'
                   }"
                 ></div>
               </div>
-              
+
               <p style="font-size: 0.8em; color: #999; margin-top: 5px; text-align: center;">
                 {{ (dailyGoalMinutes * (dailyProgress/100)).toFixed(0) }} min estudados de {{ dailyGoalMinutes }} min
               </p>
@@ -576,13 +924,13 @@ onMounted(() => loadData());
 
         <footer class="credits-footer">
             <p class="footer-title">Desenvolvido por:</p>
-            
+
             <div class="devs-container">
-              <a 
-                v-for="(dev, index) in developers" 
-                :key="index" 
-                :href="dev.link" 
-                target="_blank" 
+              <a
+                v-for="(dev, index) in developers"
+                :key="index"
+                :href="dev.link"
+                target="_blank"
                 class="dev-card"
               >
                 <img :src="dev.photo" class="dev-avatar" />
@@ -592,7 +940,7 @@ onMounted(() => loadData());
                 </div>
               </a>
             </div>
-            
+
             <p class="copyright">© 2025 Agenda Acadêmica - Vue.js & AWS Amplify - Hack the Cloud</p>
           </footer>
 
@@ -604,12 +952,12 @@ onMounted(() => loadData());
 
 <style scoped>
 .layout { display: grid; grid-template-columns: 250px 1fr; height: 100vh; font-family: sans-serif; }
-.sidebar { background: #f4f4f4; padding: 20px; display: flex; flex-direction: column; gap: 20px; border-right: 1px solid #ccc; }
-.content { padding: 30px; overflow-y: auto; }
+.sidebar { background: #f4f4f4; padding: 20px; display: flex; flex-direction: column; gap: 20px; border-right: 1px solid #ccc; overflow-y: auto; }
+.content { padding: 30px; overflow-y: auto; display: flex; flex-direction: column; }
 .box { background: white; padding: 10px; border-radius: 8px; border: 1px solid #ddd; }
 .box h3 { margin-top: 0; font-size: 1em; }
 .user-box { font-size: 0.9em; margin-bottom: 10px; }
-.btn-small { background: #e74c3c; color: white; border: none; padding: 2px 5px; font-size: 0.8em; cursor: pointer; margin-left: 10px; }
+.btn-small { background: #e74c3c; color: white; border: none; padding: 2px 5px; font-size: 0.8em; cursor: pointer; margin-left: 10px; font-weight: bold; }
 
 /* Notas */
 textarea { width: 100%; height: 60px; margin-bottom: 5px; resize: none; }
@@ -626,6 +974,7 @@ button:hover { background: #2980b9; }
 
 /* Main Area */
 header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+header h2 { color: white; }
 .filters { display: flex; gap: 15px; align-items: center; }
 .new-act { display: flex; gap: 10px; background: #eef2f3; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
 .grow { flex-grow: 1; }
@@ -643,14 +992,14 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   bottom: 0;
   left: 0;
   right: 0;
-  
+
   background: #2c3e50; /* Cor escura para destaque */
   color: white;
-  
+
   display: flex;
   justify-content: space-between;
   align-items: center;
-  
+
   padding: 10px 20px;
   margin-top: 20px;
   border-radius: 50px; /* Borda bem redonda */
@@ -776,12 +1125,13 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #e0e0e0;
-  color: #333;
+  background: #3498db;
+  color: white;
   border-radius: 4px;
+  font-weight: bold;
 }
 .btn-count:hover {
-  background: #d6d6d6;
+  background: #2980b9;
 }
 
 /* Texto de perigo quando estoura o limite */
@@ -811,12 +1161,12 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 
 /* --- RODAPÉ --- */
 .credits-footer {
-  margin-top: 50px;
+  margin-top: auto;
   padding-top: 20px;
   border-top: 1px solid #eee;
   text-align: center;
   color: #7f8c8d;
-  padding-bottom: 80px; /* Espaço extra para não ficar atrás do Pomodoro se ele for fixo */
+  padding-bottom: 20px;
 }
 
 .footer-title {
@@ -845,6 +1195,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   color: #333;
   border: 1px solid #e0e0e0;
   transition: transform 0.2s, box-shadow 0.2s;
+  min-width: 0;
 }
 
 .dev-card:hover {
@@ -854,10 +1205,13 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 }
 
 .dev-avatar {
-  width: 35px;
-  height: 35px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
   border-radius: 50%;
   object-fit: cover;
+  flex-shrink: 0;
 }
 
 .dev-info {
@@ -865,6 +1219,8 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   flex-direction: column;
   align-items: flex-start;
   line-height: 1.1;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .dev-name {
@@ -1084,5 +1440,328 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 
 .percent-text {
   color: #27ae60;
+}
+
+/* --- ESTILOS DAS ABAS --- */
+.tabs-container {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #eee;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  padding: 12px 20px;
+  font-size: 1rem;
+  cursor: pointer;
+  color: #ffffff;
+  border-bottom: 3px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.tab-btn:hover {
+  color: #2c3e50;
+}
+
+.tab-btn.tab-active {
+  color: #3498db;
+  border-bottom-color: #3498db;
+  background: rgba(52, 152, 219, 0.05);
+}
+
+.tab-content {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* --- ESTILOS DAS ESTATÍSTICAS --- */
+.stats-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 15px;
+  margin-bottom: 30px;
+}
+
+.stat-card {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.stat-label {
+  font-size: 0.85em;
+  color: #7f8c8d;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+
+.stat-value {
+  font-size: 1.8em;
+  font-weight: bold;
+  color: #2c3e50;
+}
+
+.stats-section {
+  margin-bottom: 30px;
+}
+
+.stats-section h3 {
+  font-size: 1.1em;
+  color: #2c3e50;
+  margin-bottom: 15px;
+}
+
+.empty-stats {
+  text-align: center;
+  color: #999;
+  padding: 30px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.stats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.stat-item {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 15px;
+  display: grid;
+  grid-template-columns: 120px 1fr 80px;
+  gap: 15px;
+  align-items: center;
+}
+
+.stat-date {
+  font-weight: bold;
+  color: #2c3e50;
+  font-size: 0.9em;
+}
+
+.stat-bar-container {
+  background: #f0f0f0;
+  border-radius: 4px;
+  height: 30px;
+  overflow: hidden;
+}
+
+.stat-bar {
+  background: linear-gradient(90deg, #3498db, #2ecc71);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding-left: 10px;
+  font-size: 0.8em;
+  color: white;
+  font-weight: bold;
+  transition: width 0.3s ease;
+}
+
+.stat-time {
+  text-align: right;
+  font-weight: bold;
+  color: #2c3e50;
+  font-size: 0.9em;
+}
+
+/* --- BOTÃO DE ESTATÍSTICAS --- */
+.btn-stats-link {
+  width: 100%;
+  background: #3498db;
+  color: white;
+  border: none;
+  padding: 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.3s ease;
+}
+
+.btn-stats-link:hover {
+  background: #2980b9;
+}
+
+/* --- ESTILOS DA ABA DE ATIVIDADES --- */
+.subjects-activities-list {
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+}
+
+.subject-section {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.subject-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.subject-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.subject-title h3 {
+  margin: 0;
+  font-size: 1.2em;
+  color: #2c3e50;
+}
+
+.subject-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.subject-stats {
+  display: flex;
+  gap: 10px;
+}
+
+.stat-badge {
+  font-size: 0.85em;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-weight: bold;
+}
+
+.stat-badge.completed {
+  background: #d4edda;
+  color: #155724;
+}
+
+.stat-badge.pending {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.activities-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.no-activities {
+  text-align: center;
+  color: #999;
+  padding: 20px;
+  font-style: italic;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.activities-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.activities-group-title {
+  font-size: 0.9em;
+  color: #7f8c8d;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #ecf0f1;
+}
+
+.activities-group-title.completed-group {
+  color: #27ae60;
+}
+
+.activity-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  align-items: flex-start;
+  transition: background 0.2s ease;
+}
+
+.activity-item:hover {
+  background: #eef2f3;
+}
+
+.activity-item.completed {
+  background: #d4edda;
+  opacity: 0.7;
+}
+
+.activity-item.completed:hover {
+  background: #c3e6cb;
+}
+
+.activity-checkbox {
+  padding-top: 2px;
+}
+
+.activity-checkbox input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: #27ae60;
+}
+
+.activity-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-title {
+  display: block;
+  font-weight: 500;
+  color: #2c3e50;
+  margin-bottom: 4px;
+  cursor: pointer;
+  word-break: break-word;
+}
+
+.activity-item.completed .activity-title {
+  text-decoration: line-through;
+  color: #7f8c8d;
+}
+
+.activity-date {
+  font-size: 0.8em;
+  color: #95a5a6;
 }
 </style>
