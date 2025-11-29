@@ -214,28 +214,34 @@ async function updateAbsences(subject: any, change: number) {
 // --- DADOS DOS DESENVOLVEDORES (5 Participantes) ---
 const developers = [
   { 
+    name: 'Hack the Cloud', 
+    role: 'Mestres', 
+    link: 'https://www.instagram.com/hackthecloud.unb', 
+    photo: '/Fotos/hack.png' 
+  },
+  { 
     name: 'Pablo Yuri', 
     role: 'Eng. Redes', 
     link: 'https://github.com/Pablo-Yuri', 
-    photo: 'https://ui-avatars.com/api/?name=Pablo+Yuri&background=3498db&color=fff' 
+    photo: '/Fotos/PabloYuri.png' 
   },
   { 
-    name: 'Participante 2', 
-    role: 'Frontend Dev', 
-    link: 'https://www.instagram.com/pbl_yuri/', 
-    photo: 'https://ui-avatars.com/api/?name=P+2&background=9b59b6&color=fff' 
+    name: 'Victor Girão', 
+    role: 'Eng. Computação', 
+    link: 'https://www.linkedin.com/in/victor-gir%C3%A3o-costa-122a9b226/', 
+    photo: '/Fotos/VictorGirao.png' 
   },
   { 
-    name: 'Participante 3', 
-    role: 'Backend Dev', 
-    link: '#', 
-    photo: 'https://ui-avatars.com/api/?name=P+3&background=2ecc71&color=fff' 
+    name: 'Thayná Gonçalves', 
+    role: 'Fisioterapia', 
+    link: 'https://www.linkedin.com/in/thaynagoncalvesdutra', 
+    photo: '/Fotos/ThaynaGoncalves.png' 
   },
   { 
-    name: 'Participante 4', 
-    role: 'Designer', 
-    link: '#', 
-    photo: 'https://ui-avatars.com/api/?name=P+4&background=e67e22&color=fff' 
+    name: 'Igor Cardoso', 
+    role: 'Computação', 
+    link: 'https://www.linkedin.com/in/igorxcardoso/', 
+    photo: '/Fotos/IgorCardoso.png' 
   },
   { 
     name: 'Participante 5', 
@@ -340,7 +346,7 @@ onMounted(() => loadData());
 
           <div class="new-act">
             <input type="date" v-model="newActivityDate" />
-            <input v-model="newActivityTitle" placeholder="O que vamos estudar?" class="grow" />
+            <input v-model="newActivityTitle" placeholder="Assuto" class="grow" />
             <select v-model="selectedSubjectId">
               <option value="" disabled>Selecione a Matéria</option>
               <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
@@ -428,7 +434,7 @@ onMounted(() => loadData());
               </a>
             </div>
             
-            <p class="copyright">© 2025 Agenda Acadêmica - Vue.js & AWS Amplify</p>
+            <p class="copyright">© 2025 Agenda Acadêmica - Vue.js & AWS Amplify - Hack the Cloud</p>
           </footer>
 
         </main>
