@@ -211,7 +211,7 @@ async function updateAbsences(subject: any, change: number) {
 }
 // --- LÓGICA DA CONTAGEM DE FALTAS ---------------------------------------
 // --- LÓGICA Participantes ---------------------------------------
-// --- DADOS DOS DESENVOLVEDORES (5 Participantes) ---
+// --- DADOS DOS DESENVOLVEDORES  ---
 const developers = [
   { 
     name: 'Hack the Cloud', 
@@ -365,8 +365,8 @@ onMounted(() => loadData());
             >
               <div class="date-box">
                 {{ new Date(act.date).toLocaleDateString('pt-BR', { 
-                    day: '2-digit', 
-                    month: '2-digit', 
+                    month: '2-digit',
+                    day: '2-digit',  
                     timeZone: 'UTC' 
                 }) }}
                   
@@ -426,7 +426,7 @@ onMounted(() => loadData());
                 target="_blank" 
                 class="dev-card"
               >
-                <img :src="dev.photo" :alt="dev.name" class="dev-avatar" />
+                <img :src="dev.photo" class="dev-avatar" />
                 <div class="dev-info">
                   <span class="dev-name">{{ dev.name }}</span>
                   <span class="dev-role">{{ dev.role }}</span>
