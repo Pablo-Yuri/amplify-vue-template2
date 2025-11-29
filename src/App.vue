@@ -217,7 +217,7 @@ const developers = [
     name: 'Hack the Cloud', 
     role: 'Mestres', 
     link: 'https://www.instagram.com/hackthecloud.unb', 
-    photo: '/Fotos/hack.png' 
+    photo: 's3://foto11/hack.PNG' 
   },
   { 
     name: 'Pablo Yuri', 
@@ -235,13 +235,13 @@ const developers = [
     name: 'Thayná Gonçalves', 
     role: 'Fisioterapia', 
     link: 'https://www.linkedin.com/in/thaynagoncalvesdutra', 
-    photo: '/Fotos/ThaynaGoncalves.png' 
+    photo: 's3://foto11/Thayná Gonçalves.jpeg' 
   },
   { 
     name: 'Igor Cardoso', 
     role: 'Computação', 
     link: 'https://www.linkedin.com/in/igorxcardoso/', 
-    photo: 'https://www.auntyflo.com/sites/default/files/styles/real_image/public/dictionarys/spiritual-meanings/0000-angel-card-meaning.jpg' 
+    photo: 's3://foto11/Igor Cardoso.jpeg' 
   },
   { 
     name: 'Participante 5', 
