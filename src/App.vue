@@ -113,57 +113,143 @@ const filteredActivities = computed(() => {
   return list.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 });
 
-// --- LÓGICA DO POMODORO ---------------------------------------
-const timerMinutes = ref(25);
-const timerSeconds = ref(0);
+// --- LÓGICA DO POMODORO AVANÇADO ---
+const showPomoModal = ref(false); // Abre/Fecha janela
+const customMinutes = ref(25);    // Tempo no input (configurável)
+const timerMinutes = ref(25);     // Minutos do relógio atual
+const timerSeconds = ref(0);      // Segundos do relógio atual
 const isTimerRunning = ref(false);
-const isBreakMode = ref(false); // false = Foco, true = Pausa
-const timerInterval = ref<any>(null); // Guarda o ID do intervalo
+const timerInterval = ref<any>(null);
+const pomodoroHistory = ref<any[]>([]); // Histórico vindo do banco
 
-// Formata o tempo para 00:00 (Computed)
-const formattedTime = computed(() => {
-  const m = String(timerMinutes.value).padStart(2, '0');
-  const s = String(timerSeconds.value).padStart(2, '0');
-  return `${m}:${s}`;
+// --- 2. CONFIGURAÇÃO DA META DIÁRIA ---
+const dailyGoalHours = ref(4);    // Começa com 4h padrão
+const isEditingGoal = ref(false); // Mostra/Esconde input de edição
+
+// Computada: Converte as horas da meta para minutos (ex: 4h -> 240min)
+const dailyGoalMinutes = computed(() => {
+  return dailyGoalHours.value * 60;
 });
 
-function toggleTimer() {
-  if (isTimerRunning.value) {
-    // Pausar
-    clearInterval(timerInterval.value);
-    isTimerRunning.value = false;
-  } else {
-    // Iniciar
-    isTimerRunning.value = true;
-    timerInterval.value = setInterval(() => {
-      if (timerSeconds.value > 0) {
-        timerSeconds.value--;
-      } else if (timerMinutes.value > 0) {
-        timerMinutes.value--;
-        timerSeconds.value = 59;
-      } else {
-        // Acabou o tempo!
-        clearInterval(timerInterval.value);
-        isTimerRunning.value = false;
-        alert(isBreakMode.value ? "Pausa acabou! Bora estudar?" : "Foco concluído! Descanse um pouco.");
-        // Opcional: Tocar um som aqui
-      }
-    }, 1000);
+// Função: Salva a meta no navegador para não perder ao atualizar a página
+function saveGoal() {
+  localStorage.setItem('userStudyGoal', String(dailyGoalHours.value));
+  isEditingGoal.value = false;
+}
+
+// --- 3. BANCO DE DADOS (Carregar) ---
+async function loadPomodoros() {
+  try {
+    const { data } = await client.models.Pomodoro.list();
+    // Ordena: Mais recentes primeiro
+    pomodoroHistory.value = data.sort((a, b) => 
+      new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+    );
+  } catch (e) {
+    console.error("Erro ao carregar pomodoros:", e);
   }
 }
 
+// --- 4. LÓGICA DO RELÓGIO (Start/Stop) ---
+function toggleTimer() {
+  if (isTimerRunning.value) {
+    // PAUSAR
+    clearInterval(timerInterval.value);
+    isTimerRunning.value = false;
+    return;
+  }
+
+  // INICIAR
+  // Se o relógio estiver "zerado/intacto", garante que começa do tempo configurado
+  if (timerMinutes.value === customMinutes.value && timerSeconds.value === 0) {
+     timerMinutes.value = customMinutes.value;
+  }
+
+  isTimerRunning.value = true;
+  timerInterval.value = setInterval(() => {
+    if (timerSeconds.value > 0) {
+      timerSeconds.value--;
+    } else if (timerMinutes.value > 0) {
+      timerMinutes.value--;
+      timerSeconds.value = 59;
+    } else {
+      finishPomodoro(); // Acabou o tempo
+    }
+  }, 1000);
+}
+
+// --- 5. FINALIZAR E SALVAR (Create) ---
+async function finishPomodoro() {
+  clearInterval(timerInterval.value);
+  isTimerRunning.value = false;
+  
+  // Tocar som (opcional) ou alerta
+  alert("🎉 Foco concluído! Salvando progresso...");
+
+  try {
+    // Salva no DynamoDB
+    const { data } = await client.models.Pomodoro.create({
+      minutes: customMinutes.value, // Salva o tempo total que foi configurado
+      completedAt: new Date().toISOString()
+    });
+
+    if (data) {
+      pomodoroHistory.value.unshift(data); // Adiciona no topo da lista visual
+    }
+  } catch (e) {
+    console.error("Erro ao salvar pomodoro:", e);
+  }
+  
+  resetTimer();
+}
+
+// Reiniciar relógio
 function resetTimer() {
   clearInterval(timerInterval.value);
   isTimerRunning.value = false;
+  timerMinutes.value = customMinutes.value;
   timerSeconds.value = 0;
-  // Reseta para 25 ou 5 dependendo do modo
-  timerMinutes.value = isBreakMode.value ? 5 : 25;
 }
 
-function setMode(mode: 'focus' | 'break') {
-  isBreakMode.value = (mode === 'break');
-  resetTimer(); // Já reseta para o tempo certo
-}
+// --- 6. ESTATÍSTICAS (Computed) ---
+const dailyProgress = computed(() => {
+  const hoje = new Date().toDateString();
+  
+  // 1. Filtra histórico apenas de HOJE e soma os minutos
+  const minutosHoje = pomodoroHistory.value
+    .filter(p => new Date(p.completedAt).toDateString() === hoje)
+    .reduce((total, p) => total + p.minutes, 0);
+
+  // 2. Pega o valor total da meta (usando .value pois é computed)
+  const metaTotal = dailyGoalMinutes.value; 
+
+  // Evita divisão por zero
+  if (metaTotal <= 0) return 0;
+
+  // 3. Retorna porcentagem (limitada a 100%)
+  return Math.min(Math.round((minutosHoje / metaTotal) * 100), 100);
+});
+
+// Formatação visual "00:00" para o HTML
+const formattedTime = computed(() => {
+  return `${String(timerMinutes.value).padStart(2,'0')}:${String(timerSeconds.value).padStart(2,'0')}`;
+});
+
+// --- 7. CICLO DE VIDA (OnMounted) ---
+onMounted(() => {
+  // Carrega dados gerais
+  loadData(); 
+  
+  // Carrega histórico do Pomodoro
+  loadPomodoros(); 
+  
+  // Recupera a meta salva no navegador (LocalStorage)
+  const savedGoal = localStorage.getItem('userStudyGoal');
+  if (savedGoal) {
+    dailyGoalHours.value = parseFloat(savedGoal);
+  }
+});
+
 // --- LÓGICA DO POMODORO ---------------------------------------
 
 // --- LÓGICA DA CONTAGEM DE FALTAS ---------------------------------------
@@ -229,19 +315,19 @@ const developers = [
     name: 'Victor Girão', 
     role: 'Eng. Computação', 
     link: 'https://www.linkedin.com/in/victor-gir%C3%A3o-costa-122a9b226/', 
-    photo: '/Fotos/VictorGirao.png' 
+    photo: 'https://photos.app.goo.gl/8YiabLFMdanZiuRa7' 
   },
   { 
     name: 'Thayná Gonçalves', 
     role: 'Fisioterapia', 
     link: 'https://www.linkedin.com/in/thaynagoncalvesdutra', 
-    photo: 's3://foto11/Thayná Gonçalves.jpeg' 
+    photo: 'https://photos.app.goo.gl/44NVufQcm7cFMcWJA' 
   },
   { 
     name: 'Igor Cardoso', 
     role: 'Computação', 
     link: 'https://www.linkedin.com/in/igorxcardoso/', 
-    photo: 's3://foto11/Igor Cardoso.jpeg' 
+    photo: 'https://photos.app.goo.gl/ckNSCzeBndfoh2Ra7' 
   },
   { 
     name: 'Participante 5', 
@@ -328,11 +414,41 @@ onMounted(() => loadData());
             </div>
 
           </div>
-        </aside>
+        <!-- <div class="box">
+            <h3>Calendário Acadêmico 2025.2</h3>
+            
+            <div class="subject-form">
+              {
+                "initialData": "05/01/2026",
+                "endDate": "14/02/2026",
+                "description": "Período de de aulas"
+              },
+              {
+                "initialData": "24/12/2025",
+                "endDate": "29/12/2025",
+                "description": "Período para solicitação de matrícula de 07h do dia 24/12/2025 até 23h59 do dia 29/12/2025 no SIGAA > Portal Discente > Ensino > Matrícula on-line > Realizar Matrícula em Turma de Férias."
+              },
+              {
+                "initialData": "02/01/2026",
+                "endDate": "05/01/2026",
+                "description": "Matrícula Extraordinária em Turma de Férias de 10h do dia 02/01/2026 até 23h59 do dia 05/01/2026 no SIGAA > Portal Discente > Ensino > Matrícula on-line > Realizar Matrícula Extraordinária em Turma de Férias."
+              },
 
+              {
+                "endDate": "24/01/2026",
+                "description": "Trancamento parcial de matrícula (trancamento de disciplinas), mediante solicitação via peticionamento eletrônico para a SAA."
+              }
+            </div>
+        </div> -->
+
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 15px 0;">
+        </aside>
         <main class="content">
           <header>
             <h2>Agenda de Estudos</h2>
+            <button @click="showPomoModal = true" class="btn-pomo-trigger">
+              ⏱️ Modo Foco
+            </button>
             <div class="filters">
               <label>
                 <input type="checkbox" v-model="showOnlyCurrentWeek"> Esta Semana
@@ -383,37 +499,80 @@ onMounted(() => loadData());
               </div>
             </div>
           </div>
-          <div class="pomodoro-bar" :class="{ 'break-theme': isBreakMode }">
-            <div class="pomo-controls">
-              <button 
-                @click="setMode('focus')" 
-                :class="{ active: !isBreakMode }"
-                class="mode-btn"
-              >
-                🧠 Foco
-              </button>
-              <button 
-                @click="setMode('break')" 
-                :class="{ active: isBreakMode }"
-                class="mode-btn"
-              >
-                ☕ Pausa
-              </button>
+
+          <div v-if="showPomoModal" class="modal-overlay">
+          <div class="modal-box">
+            <button class="close-btn" @click="showPomoModal = false">×</button>
+            
+            <h2>🧠 Sala de Foco</h2>
+
+            <div class="timer-config" v-if="!isTimerRunning">
+              <label>Tempo (min):</label>
+              <input type="number" v-model="customMinutes" @change="resetTimer" min="1" max="120">
             </div>
 
-            <div class="timer-display">
+            <div class="big-clock" :class="{ 'active': isTimerRunning }">
               {{ formattedTime }}
             </div>
 
-            <div class="pomo-actions">
-              <button @click="toggleTimer" class="action-btn">
-                {{ isTimerRunning ? '⏸️ Pausar' : '▶️ Iniciar' }}
+            <div class="controls">
+              <button @click="toggleTimer" class="btn-primary">
+                {{ isTimerRunning ? '⏸️ PAUSAR' : '▶️ INICIAR' }}
               </button>
-              <button @click="resetTimer" class="reset-btn">
-                🔄
-              </button>
+              <button @click="resetTimer" class="btn-secondary" title="Reiniciar">↺</button>
             </div>
+
+            <hr class="divider">
+
+            <div class="stats-area">
+      
+              <div class="progress-header">
+                <span v-if="!isEditingGoal">
+                  Meta: <strong>{{ dailyGoalHours }}h</strong>
+                  <button class="btn-edit-goal" @click="isEditingGoal = true" title="Alterar meta">✏️</button>
+                </span>
+
+                <div v-else class="goal-editor">
+                  <input 
+                    type="number" 
+                    v-model="dailyGoalHours" 
+                    min="1" 
+                    max="12" 
+                    step="0.5"
+                  > h
+                  <button @click="saveGoal" class="btn-save-mini">OK</button>
+                </div>
+
+                <strong class="percent-text">{{ dailyProgress }}%</strong>
+              </div>
+
+              <div class="progress-bg">
+                <div 
+                  class="progress-fill" 
+                  :style="{ 
+                    width: dailyProgress + '%',
+                    background: dailyProgress >= 100 ? '#f1c40f' : '#2ecc71' 
+                  }"
+                ></div>
+              </div>
+              
+              <p style="font-size: 0.8em; color: #999; margin-top: 5px; text-align: center;">
+                {{ (dailyGoalMinutes * (dailyProgress/100)).toFixed(0) }} min estudados de {{ dailyGoalMinutes }} min
+              </p>
+            </div>
+
+            <div class="history-area">
+              <h4>Últimos Focos</h4>
+              <ul>
+                <li v-for="p in pomodoroHistory.slice(0, 3)" :key="p.id">
+                  <span>✅ {{ p.minutes }} min</span>
+                  <small>{{ new Date(p.completedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) }}</small>
+                </li>
+              </ul>
+            </div>
+
           </div>
+        </div>
 
         <footer class="credits-footer">
             <p class="footer-title">Desenvolvido por:</p>
@@ -721,5 +880,209 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 .copyright {
   font-size: 0.75em;
   opacity: 0.6;
+}
+
+/* Botão que abre a janela */
+.btn-pomo-trigger {
+  background: #8e44ad;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-weight: bold;
+  box-shadow: 0 4px 0 #732d91;
+  transition: transform 0.1s;
+  margin-right: 15px; /* Espaço dos outros filtros */
+}
+.btn-pomo-trigger:active {
+  transform: translateY(4px);
+  box-shadow: none;
+}
+
+/* Fundo Escuro (Overlay) */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(44, 62, 80, 0.9); /* Azul escuro quase preto */
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+/* A Janela Branca */
+.modal-box {
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+  width: 90%;
+  max-width: 380px;
+  text-align: center;
+  position: relative;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.close-btn {
+  position: absolute;
+  top: 15px; right: 15px;
+  background: none; border: none;
+  font-size: 1.5em; cursor: pointer; color: #999;
+}
+
+/* Relógio */
+.big-clock {
+  font-size: 4.5em;
+  font-weight: bold;
+  font-family: monospace;
+  color: #2c3e50;
+  margin: 10px 0;
+}
+.big-clock.active {
+  color: #e74c3c; /* Vermelho quando rodando */
+}
+
+/* Inputs e Botões */
+.timer-config input {
+  font-size: 1.2em;
+  width: 60px;
+  text-align: center;
+  margin-left: 10px;
+  padding: 5px;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.btn-primary {
+  background: #2c3e50;
+  color: white;
+  padding: 12px 30px;
+  border-radius: 30px;
+  font-size: 1.1em;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-secondary {
+  background: #ecf0f1;
+  color: #333;
+  width: 45px;
+  height: 45px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 1.2em;
+}
+
+/* Barra de Progresso */
+.stats-area {
+  margin-top: 20px;
+  text-align: left;
+}
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 0.9em;
+}
+.progress-bg {
+  background: #ecf0f1;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.progress-fill {
+  background: #2ecc71; /* Verde */
+  height: 100%;
+  transition: width 0.5s ease;
+}
+
+/* Histórico */
+.history-area {
+  margin-top: 20px;
+  text-align: left;
+}
+.history-area h4 {
+  font-size: 0.9em;
+  color: #7f8c8d;
+  margin-bottom: 10px;
+}
+.history-area ul {
+  list-style: none;
+  padding: 0;
+}
+.history-area li {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 0.9em;
+}
+.divider {
+  border: 0;
+  border-top: 1px solid #eee;
+  margin: 20px 0;
+}
+
+/* Cabeçalho da Barra de Progresso */
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 0.95em;
+  color: #2c3e50;
+}
+
+/* Botão Lápis */
+.btn-edit-goal {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9em;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+.btn-edit-goal:hover {
+  opacity: 1;
+}
+
+/* Editor de Meta (Input + Botão OK) */
+.goal-editor {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.goal-editor input {
+  width: 50px;
+  padding: 2px 5px;
+  border: 1px solid #3498db;
+  border-radius: 4px;
+  text-align: center;
+}
+.btn-save-mini {
+  background: #27ae60;
+  color: white;
+  border: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  cursor: pointer;
+}
+
+.percent-text {
+  color: #27ae60;
 }
 </style>
