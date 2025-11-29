@@ -448,37 +448,37 @@ const developers = [
     name: 'Hack the Cloud',
     role: 'Mestres',
     link: 'https://www.instagram.com/hackthecloud.unb',
-    photo: 's3://foto11/hack.PNG'
+    photo: 'https://lh3.googleusercontent.com/pw/AP1GczOqxQZt4rkmST-LBMf5x3be8vye6x5PnrtWg1pX5dfrfUi6wQI0Bvz_eqLeIiaau4gEAgiXpSBOE9qpNioXSy2nYE00rhmRCGNB0he_gwSFZ881VorViHkp6PDMY9eMulBBRiHMdvUrw3F1ynHak1ObMg=w443-h432-s-no-gm?authuser=0'
   },
   {
     name: 'Pablo Yuri',
     role: 'Eng. Redes',
     link: 'https://github.com/Pablo-Yuri',
-    photo: '/Fotos/PabloYuri.png'
+    photo: 'https://lh3.googleusercontent.com/pw/AP1GczP9mqYCcuHgwAcQKzcbmwBgz1m6ixORq8zjkbQpT1CKqovUPXbLNKJF-FXs8YaEeUgoWJhqdpVY4FgOeIpmTBt3_xep8-5SYZ3DJBkbFK6YrqqA6ruksLUNX7XaqeaDjs3hW-wNzOpEq0qmy-Dk4GJB3w=w449-h607-s-no-gm?authuser=0'
   },
   {
     name: 'Victor Girão',
-    role: 'Eng. Computação',
+    role: 'Eng. Comp',
     link: 'https://www.linkedin.com/in/victor-gir%C3%A3o-costa-122a9b226/',
-    photo: 'https://photos.app.goo.gl/8YiabLFMdanZiuRa7'
+    photo: 'https://lh3.googleusercontent.com/pw/AP1GczOmYxVVXCNuWr0FC-4GYXbdIbc486scuwvWSq6rNhyAfRv_1jaZMFDlS1BKkH7xy1XizL_utnDjQyjWGF7O5q2iGhp7psIa-a9QvBVVyAEJSr-WKeVg8-LM8OKkvl5eslp5L1HMj_Yau-Ke-o7IWMIQ_w=w454-h455-s-no-gm'
   },
   {
     name: 'Thayná Gonçalves',
     role: 'Fisioterapia',
     link: 'https://www.linkedin.com/in/thaynagoncalvesdutra',
-    photo: 'https://photos.app.goo.gl/44NVufQcm7cFMcWJA'
+    photo: 'https://lh3.googleusercontent.com/pw/AP1GczPpGB8uo2nkMuscpQDqV723i4mqyYst23WuRliwpyzBdYGMV0YSOnMkcVXhHG13IuQyfldsyMY6T1jvmv-GlqyKP7BjANUD-2tAUiq_s50rkGMr9LHwsG-UNkIVnpJ2wlv1UNxSwzBcv4f1tvV224DDxQ=w533-h650-s-no-gm'
   },
   {
     name: 'Igor Cardoso',
     role: 'Computação',
     link: 'https://www.linkedin.com/in/igorxcardoso/',
-    photo: 'https://photos.app.goo.gl/ckNSCzeBndfoh2Ra7'
+    photo: 'https://lh3.googleusercontent.com/pw/AP1GczMrBPO-3VQYmByLXlx8xbDbNIN65bo96uZVitVEip1BV1oq2MH3tbu_ZhNT_ZJrnjp8E5cmq4nsrzk0knEloZe6epILL1T4wJw5zEE0twXeyfr-obz9T08vWKPZgCSlATxTldt-esiTFrzvZ2NkP_AtJQ=w514-h577-s-no-gm?authuser=0'
   },
   {
-    name: 'Participante 5',
-    role: 'Documentação',
-    link: '#',
-    photo: 'https://ui-avatars.com/api/?name=P+5&background=e74c3c&color=fff'
+    name: 'Ana Carolina Dias',
+    role: 'Eng. Comp',
+    link: 'https://linkedin.com/in/linadias',
+    photo: 'https://lh3.googleusercontent.com/pw/AP1GczPc9UaZE4tTgOBKFNHP88-3xqAMxURQF_kCV1pVIHMELFWpYY0G5iuLRuqlVm6LZZ2IkG-QcKc5q__08yfzxHkf_qOle7AzWe_M4H5tiPnj3ym1xwuAZyvOvSICTl8m6PLwr8DPUqyikCpJTOZ2mxU2XQ=w455-h607-s-no-gm?authuser=0'
   }
 ];
 
